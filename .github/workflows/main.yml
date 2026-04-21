@@ -1,0 +1,34 @@
+name: Phantom-24-7-VPS
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Har 6 ghante mein auto-restart
+  workflow_dispatch:      # Manual trigger ke liye
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Tmate Session
+        uses: mxschmitt/action-tmate@v3
+        with:
+          detached: true # Background mein chalega taaki notification bhej sakein
+
+      - name: Notify Discord
+        run: |
+          # Wait for tmate to generate link
+          sleep 5
+          SSH_LINK=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
+          WEB_LINK=$(tmate -S /tmp/tmate.sock display -p '#{tmate_web}')
+          
+          # Discord API Call (Sending to your Bot)
+          # Note: Humne tere token ko 'DISCORD_TOKEN' secret mein save karna hai
+          MESSAGE="🚨 **Phantom VPS Online!** \n\n💻 **SSH:** \`$SSH_LINK\` \n🌐 **Web Terminal:** $WEB_LINK"
+          
+          # Create DM Channel and Send Message
+          CHANNEL_ID=$(curl -s -H "Authorization: Bot ${{ secrets.DISCORD_TOKEN }}" -X POST -H "Content-Type: application/json" -d "{\"recipient_id\": \"1104652354655113268\"}" https://discord.com/api/v10/users/@me/channels | jq -r '.id')
+          curl -s -H "Authorization: Bot ${{ secrets.DISCORD_TOKEN }}" -X POST -H "Content-Type: application/json" -d "{\"content\": \"$MESSAGE\"}" https://discord.com/api/v10/channels/$CHANNEL_ID/messages
+
+      - name: Keep Alive
+        run: |
+          # Isse session 6 ghante tak on rahega
+          sleep 21600 
