@@ -1,46 +1,42 @@
 name: Phantom-24-7-VPS
 on:
   schedule:
-    - cron: '0 */6 * * *' 
-  workflow_dispatch:      
+    - cron: '0 */6 * * *' # Har 6 ghante mein auto-restart
+  workflow_dispatch:      # Manual trigger ke liye
 
 jobs:
   launch:
     runs-on: ubuntu-latest
     steps:
-      - name: Install Dependencies
+      - name: Prepare Machine
         run: |
           sudo apt-get update
           sudo apt-get install tmate jq curl -y
 
-      - name: Setup Tmate Session
-        uses: mxschmitt/action-tmate@v3
-        with:
-          detached: true 
-
-      - name: Notify Discord
+      - name: Launch & Notify
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          USER_ID: "1104652354655113268"
         run: |
-          # Wait for tmate to generate link
-          echo "Waiting for tmate to start..."
-          sleep 15
+          # Start tmate in background with a fixed socket
+          tmate -S /tmp/tmate.sock new-session -d
+          tmate -S /tmp/tmate.sock wait-for-session
           
-          # Get the SSH and Web links
+          # Extract links
           SSH_LINK=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
           WEB_LINK=$(tmate -S /tmp/tmate.sock display -p '#{tmate_web}')
           
-          if [ -z "$SSH_LINK" ]; then
-            echo "Error: Could not get tmate link"
-            exit 1
-          fi
+          echo "SSH: $SSH_LINK"
+          echo "WEB: $WEB_LINK"
 
-          MESSAGE="🚨 **Phantom VPS Online!** \n\n💻 **SSH:** \`$SSH_LINK\` \n🌐 **Web Terminal:** $WEB_LINK"
-          
-          # Create DM Channel and Send Message to your ID
-          CHANNEL_ID=$(curl -s -H "Authorization: Bot ${{ secrets.DISCORD_TOKEN }}" -X POST -H "Content-Type: application/json" -d "{\"recipient_id\": \"1104652354655113268\"}" https://discord.com/api/v10/users/@me/channels | jq -r '.id')
-          curl -s -H "Authorization: Bot ${{ secrets.DISCORD_TOKEN }}" -X POST -H "Content-Type: application/json" -d "{\"content\": \"$MESSAGE\"}" https://discord.com/api/v10/channels/$CHANNEL_ID/messages
+          # Send to Discord via Bot
+          # Note: Hum direct API call karenge bina kisi library ke
+          curl -H "Authorization: Bot $DISCORD_TOKEN" \
+               -H "Content-Type: application/json" \
+               -X POST \
+               -d "{\"content\": \"🚀 **Phantom VPS Online!**\n\n👤 **Operator:** <@$USER_ID>\n🔗 **SSH:** \`$SSH_LINK\`\n🌐 **Web Shell:** $WEB_LINK\n\n⏱️ *Session limit: 6 Hours*\"}" \
+               https://discord.com/api/v10/channels/$(curl -H "Authorization: Bot $DISCORD_TOKEN" https://discord.com/api/v10/users/@me/channels -X POST -d "{\"recipient_id\": \"$USER_ID\"}" | jq -r '.id')/messages
 
-      - name: Keep Alive
-        run: |
-          echo "VPS is running... Keep this tab open or check Discord."
-          # 6 hours sleep
-          sleep 21600 
+          # Keep the VPS alive for 6 hours
+          echo "VPS is running... Keeping session alive for 6 hours."
+          sleep 21600
