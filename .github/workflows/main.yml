@@ -1,56 +1,53 @@
-name: Phantom-UI-VPS
+name: Phantom-RDP-Nitro
 on:
   workflow_dispatch:
 
 jobs:
-  launch-ui:
+  launch-rdp:
     runs-on: ubuntu-latest
     steps:
-      - name: System Overhaul (XFCE + VNC)
+      - name: Nitro Prep (XFCE + RDP)
         run: |
           sudo apt-get update > /dev/null
-          # Desktop aur VNC install kar rahe hain (It takes ~3-5 mins)
-          sudo apt-get install -y xfce4 xfce4-goodies tightvncserver websockify curl jq > /dev/null
+          # Desktop, RDP aur basic tools install kar rahe hain
+          sudo apt-get install -y xfce4 xfce4-goodies xrdp curl jq > /dev/null
           
-      - name: Prep UI & NoVNC
-        run: |
-          # 1. VNC Password Set (Pass: phantom)
-          mkdir -p ~/.vnc
-          echo "phantom" | vncpasswd -f > ~/.vnc/passwd
-          chmod 600 ~/.vnc/passwd
-          
-          # 2. Start VNC Server
-          vncserver :1 -geometry 1280x720 -depth 24
-          
-          # 3. Setup NoVNC (Web Browser VNC)
-          git clone https://github.com/novnc/noVNC.git --depth 1
-          
-      - name: Launch Phantom Tunnel
+          # XRDP Configuration
+          sudo adduser xrdp ssl-cert
+          echo "xfce4-session" > ~/.xsession
+          echo "runner:phantom786" | sudo chpasswd
+          sudo /etc/init.d/xrdp start
+
+      - name: Launch Cloudflare Nitro Tunnel
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           USER_ID: "1104652354655113268"
         run: |
-          # 1. Install Cloudflared
+          # Download Cloudflared
           curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared.deb > /dev/null
           
-          # 2. Start NoVNC Proxy on Port 8080
-          ./noVNC/utils/novnc_proxy --vnc localhost:5901 --listen 8080 &
+          # Start Tunnel for RDP (Port 3389)
+          nohup cloudflared tunnel --url rdp://localhost:3389 > cf.log 2>&1 &
           
-          # 3. Cloudflare Tunnel
-          nohup cloudflared tunnel --url http://localhost:8080 > cf.log 2>&1 &
-          
+          echo "Waiting for tunnel to ignite..."
           sleep 20
           
-          # 4. Extract URL
+          # Extract Tunnel Hostname
           CF_URL=$(grep -o 'https://[-0-9a-z]*\.trycloudflare.com' cf.log | head -n 1)
+          TUNNEL_HOST=${CF_URL#https://}
           
-          echo "UI URL: $CF_URL"
+          echo "Host: $TUNNEL_HOST"
 
-          # 5. Discord Notify
+          # Discord Notification
           CHANNEL_ID=$(curl -s -H "Authorization: Bot $DISCORD_TOKEN" -H "Content-Type: application/json" -X POST -d "{\"recipient_id\": \"$USER_ID\"}" https://discord.com/api/v10/users/@me/channels | jq -r '.id')
           
-          curl -s -H "Authorization: Bot $DISCORD_TOKEN" -H "Content-Type: application/json" -X POST -d "{\"content\": \"🖥️ **Phantom UI VPS Online!**\n\n🔗 **Link:** $CF_URL/vnc.html\n🔑 **VNC Pass:** \`phantom\`\n\n⚠️ *Wait 1 minute after clicking link for UI to load.*\"}" https://discord.com/api/v10/channels/$CHANNEL_ID/messages
+          if [ "$CHANNEL_ID" != "null" ]; then
+            curl -s -H "Authorization: Bot $DISCORD_TOKEN" -H "Content-Type: application/json" -X POST -d "{\"content\": \"🚀 **Phantom RDP Nitro Active!**\n\n👤 **User:** \`runner\`\n🔑 **Pass:** \`phantom786\`\n🔗 **Hostname:** \`$TUNNEL_HOST\`\n\n🛠️ **How to connect:**\n1. Run this on your PC: \`cloudflared access rdp --hostname $TUNNEL_HOST --listener localhost:3389\`\n2. Open 'Remote Desktop Connection' app.\n3. Connect to \`localhost:3389\`\"}" https://discord.com/api/v10/channels/$CHANNEL_ID/messages
+            echo "Notification dispatched."
+          else
+            echo "Discord error."
+          fi
 
-          # Keep Alive
-          while true; do sleep 300; done
+          # Heartbeat (Stay alive for 6 hours)
+          while true; do echo "Nitro Session Active - $(date)"; sleep 300; done
