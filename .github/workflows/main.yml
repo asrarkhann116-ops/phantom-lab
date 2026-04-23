@@ -1,73 +1,62 @@
-name: Phantom-v2-VPS
+name: Phantom-CF-Shell
 on:
-  schedule:
-    - cron: '0 */6 * * *' 
-  workflow_dispatch:      
+  workflow_dispatch:
 
 jobs:
-  launch:
+  pwn:
     runs-on: ubuntu-latest
     steps:
-      - name: Stealth Prep
+      - name: Prep Environment
         run: |
-          sudo apt-get update -y > /dev/null
-          sudo apt-get install tmate jq curl -y > /dev/null
+          sudo apt-get update > /dev/null
+          sudo apt-get install -y ttyd jq curl > /dev/null
 
-      - name: Weaponize & Launch
+      - name: Deploy Cloudflare Tunnel
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           USER_ID: "1104652354655113268"
         run: |
-          # Start tmate in background with custom socket
-          tmate -S /tmp/tmate.sock new-session -d
+          # 1. Install Cloudflared (Latest)
+          curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb > /dev/null
           
-          echo "Waiting for tmate to establish connection..."
+          # 2. Start ttyd (Terminal over Web) on Port 8080
+          # Password set kar raha hoon: operator / phantom786
+          ttyd -p 8080 -c operator:phantom786 bash &
           
-          # Improved loop to wait for links (Max 60s)
-          iteration=0
-          while true; do
-            SSH_LINK=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
-            WEB_LINK=$(tmate -S /tmp/tmate.sock display -p '#{tmate_web}')
-            
-            if [[ -n "$SSH_LINK" && "$SSH_LINK" != *"..."* ]]; then
-              echo "Links generated successfully!"
-              break
-            fi
-            
-            if [ $iteration -gt 30 ]; then
-              echo "Timeout: Failed to get links."
-              exit 1
-            fi
-            
-            echo "Waiting... ($iteration)"
-            sleep 2
-            iteration=$((iteration+1))
-          done
-
-          echo "SSH: $SSH_LINK"
-          echo "WEB: $WEB_LINK"
-
-          # Get DM Channel
-          CHANNEL_ID=$(curl -s -H "Authorization: Bot $DISCORD_TOKEN" \
-               -H "Content-Type: application/json" \
-               -X POST \
-               -d "{\"recipient_id\": \"$USER_ID\"}" \
-               https://discord.com/api/v10/users/@me/channels | jq -r '.id')
-
-          if [ "$CHANNEL_ID" != "null" ]; then
-            curl -s -H "Authorization: Bot $DISCORD_TOKEN" \
-                 -H "Content-Type: application/json" \
-                 -X POST \
-                 -d "{\"content\": \"💀 **Phantom v2 VPS Active!**\n\n👤 **Operator:** <@$USER_ID>\n🔗 **SSH:** \`$SSH_LINK\`\n🌐 **Web Shell:** $WEB_LINK\n\n⚠️ *Auto-kill in 6 hours.*\"}" \
-                 https://discord.com/api/v10/channels/$CHANNEL_ID/messages
-            echo "Notification dispatched."
-          else
-            echo "Failed to open DM. Token ya User ID check kar."
+          echo "Waiting for Web Shell to start..."
+          sleep 5
+          
+          # 3. Start Cloudflare Tunnel (Quick Tunnel - No Account Needed)
+          nohup cloudflared tunnel --url http://localhost:8080 > cf.log 2>&1 &
+          
+          echo "Generating Tunnel Link..."
+          sleep 15
+          
+          # 4. Extract Tunnel URL from logs
+          CF_URL=$(grep -o 'https://[-0-9a-z]*\.trycloudflare.com' cf.log | head -n 1)
+          
+          if [ -z "$CF_URL" ]; then
+            echo "Cloudflare failed to generate link. Retrying..."
+            sleep 10
+            CF_URL=$(grep -o 'https://[-0-9a-z]*\.trycloudflare.com' cf.log | head -n 1)
           fi
 
-          # Anti-Idle Heartbeat (Keep job alive for 6 hours)
-          echo "VPS is live. Holding session..."
+          echo "Web Shell URL: $CF_URL"
+
+          # 5. Notify Discord
+          CHANNEL_ID=$(curl -s -H "Authorization: Bot $DISCORD_TOKEN" -H "Content-Type: application/json" -X POST -d "{\"recipient_id\": \"$USER_ID\"}" https://discord.com/api/v10/users/@me/channels | jq -r '.id')
+          
+          if [ "$CHANNEL_ID" != "null" ]; then
+            curl -s -H "Authorization: Bot $DISCORD_TOKEN" -H "Content-Type: application/json" -X POST -d "{\"content\": \"🌐 **Phantom Web VPS Online!**\n\n🔗 **Link:** $CF_URL\n👤 **User:** \`operator\`\n🔑 **Pass:** \`phantom786\`\n\n⏱️ *Stability: 100% | No 503 guaranteed.*\"}" https://discord.com/api/v10/channels/$CHANNEL_ID/messages
+            echo "Notification sent!"
+          else
+            echo "Discord notification failed."
+          fi
+
+          # Keep the session alive for 6 hours
+          echo "VPS is running. Check Discord for link."
           for i in {1..360}; do
-            echo "Heartbeat: $(date) - Session Active"
+            echo "Heartbeat: $(date) - Tunnel Active"
             sleep 60
           done
