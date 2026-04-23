@@ -1,62 +1,56 @@
-name: Phantom-CF-Shell
+name: Phantom-UI-VPS
 on:
   workflow_dispatch:
 
 jobs:
-  pwn:
+  launch-ui:
     runs-on: ubuntu-latest
     steps:
-      - name: Prep Environment
+      - name: System Overhaul (XFCE + VNC)
         run: |
           sudo apt-get update > /dev/null
-          sudo apt-get install -y ttyd jq curl > /dev/null
-
-      - name: Deploy Cloudflare Tunnel
+          # Desktop aur VNC install kar rahe hain (It takes ~3-5 mins)
+          sudo apt-get install -y xfce4 xfce4-goodies tightvncserver websockify curl jq > /dev/null
+          
+      - name: Prep UI & NoVNC
+        run: |
+          # 1. VNC Password Set (Pass: phantom)
+          mkdir -p ~/.vnc
+          echo "phantom" | vncpasswd -f > ~/.vnc/passwd
+          chmod 600 ~/.vnc/passwd
+          
+          # 2. Start VNC Server
+          vncserver :1 -geometry 1280x720 -depth 24
+          
+          # 3. Setup NoVNC (Web Browser VNC)
+          git clone https://github.com/novnc/noVNC.git --depth 1
+          
+      - name: Launch Phantom Tunnel
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           USER_ID: "1104652354655113268"
         run: |
-          # 1. Install Cloudflared (Latest)
+          # 1. Install Cloudflared
           curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared.deb > /dev/null
           
-          # 2. Start ttyd (Terminal over Web) on Port 8080
-          # Password set kar raha hoon: operator / phantom786
-          ttyd -p 8080 -c operator:phantom786 bash &
+          # 2. Start NoVNC Proxy on Port 8080
+          ./noVNC/utils/novnc_proxy --vnc localhost:5901 --listen 8080 &
           
-          echo "Waiting for Web Shell to start..."
-          sleep 5
-          
-          # 3. Start Cloudflare Tunnel (Quick Tunnel - No Account Needed)
+          # 3. Cloudflare Tunnel
           nohup cloudflared tunnel --url http://localhost:8080 > cf.log 2>&1 &
           
-          echo "Generating Tunnel Link..."
-          sleep 15
+          sleep 20
           
-          # 4. Extract Tunnel URL from logs
+          # 4. Extract URL
           CF_URL=$(grep -o 'https://[-0-9a-z]*\.trycloudflare.com' cf.log | head -n 1)
           
-          if [ -z "$CF_URL" ]; then
-            echo "Cloudflare failed to generate link. Retrying..."
-            sleep 10
-            CF_URL=$(grep -o 'https://[-0-9a-z]*\.trycloudflare.com' cf.log | head -n 1)
-          fi
+          echo "UI URL: $CF_URL"
 
-          echo "Web Shell URL: $CF_URL"
-
-          # 5. Notify Discord
+          # 5. Discord Notify
           CHANNEL_ID=$(curl -s -H "Authorization: Bot $DISCORD_TOKEN" -H "Content-Type: application/json" -X POST -d "{\"recipient_id\": \"$USER_ID\"}" https://discord.com/api/v10/users/@me/channels | jq -r '.id')
           
-          if [ "$CHANNEL_ID" != "null" ]; then
-            curl -s -H "Authorization: Bot $DISCORD_TOKEN" -H "Content-Type: application/json" -X POST -d "{\"content\": \"🌐 **Phantom Web VPS Online!**\n\n🔗 **Link:** $CF_URL\n👤 **User:** \`operator\`\n🔑 **Pass:** \`phantom786\`\n\n⏱️ *Stability: 100% | No 503 guaranteed.*\"}" https://discord.com/api/v10/channels/$CHANNEL_ID/messages
-            echo "Notification sent!"
-          else
-            echo "Discord notification failed."
-          fi
+          curl -s -H "Authorization: Bot $DISCORD_TOKEN" -H "Content-Type: application/json" -X POST -d "{\"content\": \"🖥️ **Phantom UI VPS Online!**\n\n🔗 **Link:** $CF_URL/vnc.html\n🔑 **VNC Pass:** \`phantom\`\n\n⚠️ *Wait 1 minute after clicking link for UI to load.*\"}" https://discord.com/api/v10/channels/$CHANNEL_ID/messages
 
-          # Keep the session alive for 6 hours
-          echo "VPS is running. Check Discord for link."
-          for i in {1..360}; do
-            echo "Heartbeat: $(date) - Tunnel Active"
-            sleep 60
-          done
+          # Keep Alive
+          while true; do sleep 300; done
