@@ -1,4 +1,4 @@
-name: Phantom-RustDesk-VPS
+name: Phantom-Rust-v2
 on:
   workflow_dispatch:
 
@@ -6,41 +6,45 @@ jobs:
   launch:
     runs-on: ubuntu-latest
     steps:
-      - name: Prep System
+      - name: System Overhaul
         run: |
           sudo apt-get update > /dev/null
-          sudo apt-get install -y xfce4 xfce4-goodies curl jq > /dev/null
+          # dbus-x11 zaruri hai XFCE ke liye
+          sudo apt-get install -y xfce4 xfce4-goodies dbus-x11 xvfb curl jq > /dev/null
 
-      - name: Install RustDesk
+      - name: Install & Prime RustDesk
         run: |
           wget https://github.com/rustdesk/rustdesk/releases/download/1.2.3/rustdesk-1.2.3-x86_64.deb
           sudo apt-get install -y ./rustdesk-1.2.3-x86_64.deb > /dev/null
+          
+          # Start RustDesk Service
+          sudo systemctl start rustdesk
+          sleep 5
+          
+          # Set Password (Root access needed)
+          sudo rustdesk --password phantom786
 
-      - name: Launch Phantom Desktop
+      - name: Ignition
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           USER_ID: "1104652354655113268"
         run: |
-          # Start Xvfb (Virtual Display)
-          sudo apt-get install -y xvfb > /dev/null
+          # Start Display
           Xvfb :1 -screen 0 1280x720x24 &
           export DISPLAY=:1
           
-          # Start Desktop
-          startxfce4 &
-          
-          # Start RustDesk and Set Password
-          sudo rustdesk --password phantom786 &
+          # Start Desktop with dbus
+          dbus-launch startxfce4 &
           sleep 10
           
-          # Get RustDesk ID
-          RUST_ID=$(rustdesk --get-id)
+          # Get ID using sudo
+          RUST_ID=$(sudo rustdesk --get-id)
           
           echo "ID: $RUST_ID"
 
           # Notify Discord
           CHANNEL_ID=$(curl -s -H "Authorization: Bot $DISCORD_TOKEN" -H "Content-Type: application/json" -X POST -d "{\"recipient_id\": \"$USER_ID\"}" https://discord.com/api/v10/users/@me/channels | jq -r '.id')
           
-          curl -s -H "Authorization: Bot $DISCORD_TOKEN" -H "Content-Type: application/json" -X POST -d "{\"content\": \"🛰️ **Phantom RustDesk VPS Online!**\n\n🆔 **ID:** \`$RUST_ID\`\n🔑 **Pass:** \`phantom786\`\n\n🛠️ **How to connect:**\n1. Download RustDesk on your PC.\n2. Enter the ID and use the password.\n\n*Zero lag, Zero console errors!*\"}" https://discord.com/api/v10/channels/$CHANNEL_ID/messages
+          curl -s -H "Authorization: Bot $DISCORD_TOKEN" -H "Content-Type: application/json" -X POST -d "{\"content\": \"🛰️ **Phantom RustDesk v2 Online!**\n\n🆔 **ID:** \`$RUST_ID\`\n🔑 **Pass:** \`phantom786\`\n\n🛠️ **How to connect:**\n1. Open RustDesk on your PC.\n2. Enter the ID and use the password.\n\n*Ab full power chalega!*\"}" https://discord.com/api/v10/channels/$CHANNEL_ID/messages
 
           while true; do sleep 300; done
