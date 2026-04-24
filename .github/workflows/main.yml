@@ -9,14 +9,22 @@ jobs:
       - name: Nitro Prep (XFCE + RDP)
         run: |
           sudo apt-get update > /dev/null
-          # Desktop, RDP aur basic tools install kar rahe hain
-          sudo apt-get install -y xfce4 xfce4-goodies xrdp curl jq > /dev/null
+          # Core components install
+          sudo apt-get install -y xfce4 xfce4-goodies xrdp xorgxrdp curl jq > /dev/null
           
-          # XRDP Configuration
+          # XRDP & Session Fixes (Crucial for avoiding 'Console Session' error)
           sudo adduser xrdp ssl-cert
-          echo "xfce4-session" > ~/.xsession
+          echo "exec startxfce4" > ~/.xsession
+          chmod +x ~/.xsession
+          
+          # Allow anybody to start X server (Fixes RDP login issues)
+          sudo sed -i 's/allowed_users=console/allowed_users=anybody/' /etc/X11/Xwrapper.config
+          
+          # Credentials
           echo "runner:phantom786" | sudo chpasswd
-          sudo /etc/init.d/xrdp start
+          
+          # Restart XRDP
+          sudo /etc/init.d/xrdp restart
 
       - name: Launch Cloudflare Nitro Tunnel
         env:
@@ -27,10 +35,10 @@ jobs:
           curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared.deb > /dev/null
           
-          # Start Tunnel for RDP (Port 3389)
+          # Start Tunnel for RDP
           nohup cloudflared tunnel --url rdp://localhost:3389 > cf.log 2>&1 &
           
-          echo "Waiting for tunnel to ignite..."
+          echo "Igniting the tunnel..."
           sleep 20
           
           # Extract Tunnel Hostname
@@ -43,11 +51,11 @@ jobs:
           CHANNEL_ID=$(curl -s -H "Authorization: Bot $DISCORD_TOKEN" -H "Content-Type: application/json" -X POST -d "{\"recipient_id\": \"$USER_ID\"}" https://discord.com/api/v10/users/@me/channels | jq -r '.id')
           
           if [ "$CHANNEL_ID" != "null" ]; then
-            curl -s -H "Authorization: Bot $DISCORD_TOKEN" -H "Content-Type: application/json" -X POST -d "{\"content\": \"🚀 **Phantom RDP Nitro Active!**\n\n👤 **User:** \`runner\`\n🔑 **Pass:** \`phantom786\`\n🔗 **Hostname:** \`$TUNNEL_HOST\`\n\n🛠️ **How to connect:**\n1. Run this on your PC: \`cloudflared access rdp --hostname $TUNNEL_HOST --listener localhost:3389\`\n2. Open 'Remote Desktop Connection' app.\n3. Connect to \`localhost:3389\`\"}" https://discord.com/api/v10/channels/$CHANNEL_ID/messages
-            echo "Notification dispatched."
+            curl -s -H "Authorization: Bot $DISCORD_TOKEN" -H "Content-Type: application/json" -X POST -d "{\"content\": \"🚀 **Phantom RDP Nitro v2 (Fixed) Active!**\n\n👤 **User:** \`runner\`\n🔑 **Pass:** \`phantom786\`\n🔗 **Hostname:** \`$TUNNEL_HOST\`\n\n🛠️ **Connection Steps:**\n1. Run: \`cloudflared access rdp --hostname $TUNNEL_HOST --listener localhost:3389\`\n2. Open Remote Desktop Connection to \`localhost:3389\`\"}" https://discord.com/api/v10/channels/$CHANNEL_ID/messages
+            echo "Notification sent."
           else
             echo "Discord error."
           fi
 
-          # Heartbeat (Stay alive for 6 hours)
+          # Heartbeat (6 Hours)
           while true; do echo "Nitro Session Active - $(date)"; sleep 300; done
